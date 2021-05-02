@@ -1,0 +1,231 @@
+---
+title: "Topic Modeling with Movie Plot Synopses Dataset"
+author: "Cansu Tatar"
+date: "5/2/2021"
+output: ioslides_presentation
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(tidytext)
+library(SnowballC)
+library(topicmodels)
+library(stm)
+library(ldatuning)
+library(knitr)
+library(LDAvis)
+
+
+movie_data <- read_csv("data/mpst_full_data.csv", 
+                          col_types = cols(imdb_id = col_character()
+                                           )
+                       )
+movie_data_new <-
+  movie_data %>%
+  select(imdb_id,title, plot_synopsis,synopsis_source)
+
+mysample <- movie_data_new[sample(1:nrow(movie_data_new), 50,
+                          replace=FALSE),]
+```
+
+## Purpose
+
+The purpose of this independent analysis is to analyze plot synopses of
+movies. For this analysis, I have used the dataset that was published in
+LREC 2018 @Miyazaki, Japan. The dataset includes 14K plot synopses from
+imdb and wikipedia. However, I have only used a subset of it to provide
+a deep understanding.
+
+In this analysis, I tried to follow a similar methodology with the Kar
+et al. (2018) study. They also used the same dataset to analyze taggig
+of each movie. If you are interested in their work, you can find the
+article [here](https://www.aclweb.org/anthology/L18-1274.pdf).
+
+## Guiding Question
+
+In this analysis, I address the following question: What are the topics
+that indicated in movies' written plot synopsis?
+
+## Preparing the Dataset
+
+The dataset includes 14K movie plot synopses and 70 tags. To clearly
+apply the LDA and STM packages, I created a subset (n=50) and removed
+the tags.
+
+***Tidy Text***
+
+> movie_tidy \<- mysample %\>%\
+> unnest_tokens(output = word, input = plot_synopsis) %\>%\
+> anti_join(stop_words, by = "word")
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+movie_tidy <- mysample %>%
+  unnest_tokens(output = word, input = plot_synopsis) %>%
+  anti_join(stop_words, by = "word")
+
+movie_tidy %>%
+  count(word, sort = TRUE)
+```
+
+## Term Matrix
+
+> movie_dtm \<- movie_tidy %\>%\
+> count(imdb_id, word) %\>%\
+> cast_dtm(imdb_id, word, n)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+movie_dtm <- movie_tidy %>%
+  count(imdb_id, word) %>%
+  cast_dtm(imdb_id, word, n)
+
+movie_dtm
+```
+
+## Stem words
+
+stemmed_movie \<- mysample %\>%\
+unnest_tokens(output = word, input = plot_synopsis) %\>%\
+anti_join(stop_words, by = "word") %\>%\
+mutate(stem = wordStem(word)\
+)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+stemmed_movie <- mysample %>%
+  unnest_tokens(output = word, input = plot_synopsis) %>%
+  anti_join(stop_words, by = "word") %>%
+  mutate(stem = wordStem(word))
+
+stemmed_movie
+```
+
+## Latent Direchlet Allocation (LDA)
+
+My first topic model is using the LDA() function. I intentionally
+selects the K=10 since the dataset includes so many unique movie title.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+movie_lda <- LDA(movie_dtm, 
+                  k = 10, 
+                  control = list(seed = 588)
+                  )
+
+movie_lda
+```
+
+## Structural Topic Model (STM)
+
+As the second topic model, I used STM () function.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+temp <- textProcessor(mysample$plot_synopsis, 
+                      metadata = mysample,  
+                      lowercase=TRUE, 
+                      removestopwords=TRUE, 
+                      removenumbers=TRUE,  
+                      removepunctuation=TRUE, 
+                      wordLengths=c(3,Inf),
+                      stem=TRUE,
+                      onlycharacter= FALSE, 
+                      striphtml=TRUE, 
+                      customstopwords=NULL)
+meta <- temp$meta
+vocab <- temp$vocab
+docs <- temp$documents
+
+docs <- temp$documents 
+meta <- temp$meta 
+vocab <- temp$vocab 
+
+movie_stm <- stm(documents=docs, 
+                  data=meta,
+                  vocab=vocab, 
+                  K=7,
+                  max.em.its=25,
+                  verbose = FALSE)
+movie_stm
+
+```
+
+## Top Topics
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+plot.STM(movie_stm, n = 5)
+```
+
+## Finding K
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+k_metrics <- FindTopicsNumber(
+  movie_dtm,
+  topics = seq(10, 75, by = 5),
+  metrics = "Griffiths2004",
+  method = "Gibbs",
+  control = list(),
+  mc.cores = NA,
+  return_models = FALSE,
+  verbose = FALSE,
+  libpath = NULL
+  )
+
+FindTopicsNumber_plot(k_metrics)
+
+```
+
+## The findingK() Function
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+findingk <- searchK(docs, 
+                    vocab, 
+                    K = c(5:15),
+                    data = meta, 
+                    verbose=FALSE)
+
+plot(findingk)
+
+```
+
+## Explore
+
+![](images/Screen%20Shot%202021-05-02%20at%2011.49.45%20PM.png){width="600"}
+
+## Reading Tea Leaves
+
+> movie_data_reduced\<-movie_data_new$plot_synopsis[-temp$docs.removed]
+
+> findThoughts(movie_stm, texts = movie_data_reduced, topics = 2, n = 5,
+> thresh = 0.5)
+
+## 
+
+\#\#Topic 2:
+
+\#\#Uu Kodathara Ulikki Padathara
+
+\#\#\# The story of the film revolves around a palace known as  \#\#\#
+'Gandharva Mahal' which belongs to Rayudu (Prabhu), the present  \#\#\#
+head of a royal family that has lost its former splendor. \#\#\#
+Rayudu lives with his wife (Meena Kumari) and two daughters  \#\#\#
+Visalakshi (Madhumitha) and Jagadha (Deeksha Seth) in a small \#\#\#
+house beside the Mahal. Rayudu rents out the palace to make \#\#\#
+ends meet. He is shown as a soft and generous man. Some of \#\#\#
+the tenants take this generosity for granted and harass Rayudu, \#\#\#
+without paying the rent. \#\#\#
+Into this scenario comes Manoj (Manoj Manchu), as someone  \#\#\#
+seeking a place to rent. He slowly gets rid of the \#\#\#
+problematic elements in the palace and restores  \#\#\#
+control to Rayudu. Manoj falls in love with Jagadha. \#\#\#
+A happy Rayudu decides to get Visalakshi married and  \#\#\#
+decides to give away the Gandharva Mahal as dowry. \#\#\#
+One night, Manoj comes to Rayudu with a bloodied \#\#\#
+nose and claims that he saw a ghost which tried  \#\#\#
+to kill him and warned him about selling the Mahal. \#\#\#
+Rayudu reveals that the ghost might be his dead father, \#\#\#
+Rudramaneni Narsimha Rayudu (Nandamuri Balakrishna) and \#\#\#
+explains the history of Gandharva Mahal to Manoj.
